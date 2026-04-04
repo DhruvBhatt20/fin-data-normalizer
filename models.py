@@ -82,3 +82,12 @@ class FinDataNormalizerObservation(Observation):
         default=None,
         description="List of fields the agent got wrong.",
     )
+class FinDataNormalizerAction(Action):
+    task_name: Optional[str] = Field(
+        default=None,
+        description="Task to grade. Required if reset() was not called in this session."
+    )
+    result: Dict[str, Any] = Field(
+        ...,
+        description="Agent's answer for the current task."
+    )

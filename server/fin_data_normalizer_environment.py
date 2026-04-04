@@ -466,7 +466,7 @@ class FinDataNormalizerEnvironment(Environment):
         """
         self._state.step_count += 1
 
-        if self._done or self._current_task is None:
+        if self._done:
             return FinDataNormalizerObservation(
                 task_name=self._current_task or "",
                 task_description="Episode already complete. Call reset() to start a new episode.",
@@ -479,6 +479,24 @@ class FinDataNormalizerEnvironment(Environment):
                 done=True,
                 reward=0.0,
             )
+
+        # Support stateless mode: use task_name from action if no active episode
+        if self._current_task is None:
+            if action.task_name and action.task_name in TASKS:
+                self._current_task = action.task_name
+            else:
+                return FinDataNormalizerObservation(
+                    task_name="",
+                    task_description="No active episode. Call reset() or provide task_name in action.",
+                    task_data={},
+                    difficulty="easy",
+                    score=0.0,
+                    feedback="No active task.",
+                    fields_correct=[],
+                    fields_wrong=[],
+                    done=True,
+                    reward=0.0,
+                )
 
         grader = GRADERS[self._current_task]
         score, feedback, correct, wrong = grader(action.result)
