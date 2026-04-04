@@ -1,0 +1,28 @@
+spec_version: 1
+name: fin_data_normalizer
+display_name: Financial Data Normalizer
+description: >
+  A real-world RL environment where an AI agent must clean, extract, and
+  reconcile messy financial data. Three tasks of increasing difficulty:
+  unit normalization (easy), RBI metric extraction (medium), and
+  multi-source conflict resolution (hard).
+type: space
+runtime: fastapi
+app: server.app:app
+port: 8000
+tags:
+  - finance
+  - data-cleaning
+  - nlp
+  - real-world
+  - openenv
+tasks:
+  - name: unit_normalization
+    difficulty: easy
+    description: Normalize financial figures to Crores INR from mixed units and currencies.
+  - name: metric_extraction
+    difficulty: medium
+    description: Extract key metrics from RBI Monetary Policy Committee statement text.
+  - name: conflict_resolution
+    difficulty: hard
+    description: Resolve conflicting financial data across multiple sources using priority rules.
