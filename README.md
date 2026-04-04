@@ -228,10 +228,10 @@ Scores achieved by `Qwen/Qwen2.5-72B-Instruct` on the hosted environment:
 
 | Task | Difficulty | Baseline Score |
 |------|-----------|----------------|
-| unit_normalization | Easy | ~0.75 |
-| metric_extraction | Medium | ~0.85 |
-| conflict_resolution | Hard | ~0.60 |
-| **Average** | | **~0.73** |
+| unit_normalization | Easy | 0.550 |
+| metric_extraction | Medium | 1.000 |
+| conflict_resolution | Hard | 1.000 |
+| **Average** | | **0.850** |
 
 *Note: Scores are approximate and may vary across runs due to model temperature.*
 
