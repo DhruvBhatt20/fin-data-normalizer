@@ -1,255 +1,266 @@
----
-title: Fin Data Normalizer Environment Server
-emoji: 📯
-colorFrom: red
-colorTo: gray
-sdk: docker
-pinned: false
-app_port: 8000
-base_path: /web
-tags:
-  - openenv
+# Financial Data Normalizer — OpenEnv Environment
+
+A real-world reinforcement learning environment where an AI agent acts as a **financial data analyst**, processing messy, inconsistent financial data across three tasks of increasing difficulty.
+
+Built for the [Meta PyTorch OpenEnv Hackathon](https://github.com/meta-pytorch/OpenEnv).
+
 ---
 
-# Fin Data Normalizer Environment
+## Motivation
 
-A simple test environment that echoes back messages. Perfect for testing the env APIs as well as demonstrating environment usage patterns.
+Every financial institution, fintech firm, and research team deals with the same problem: financial data arrives from multiple sources in inconsistent formats — different units, currencies, date conventions, and conflicting values. Normalizing this data is a critical, time-consuming task that is an ideal candidate for AI agent automation.
 
-## Quick Start
+This environment simulates exactly that workflow, forcing an agent to:
+- Parse and convert financial figures across units and currencies
+- Extract structured metrics from unstructured central bank text
+- Resolve conflicts across multiple data sources using explicit priority rules
 
-The simplest way to use the Fin Data Normalizer environment is through the `FinDataNormalizerEnv` class:
+---
+
+## Environment Description
+
+**Name:** `fin_data_normalizer`  
+**Type:** Single-turn task environment (one `step()` per episode)  
+**Interface:** OpenEnv standard (`reset()` / `step()` / `state()`)  
+**Deployment:** HuggingFace Spaces (Docker, FastAPI, WebSocket)
+
+---
+
+## Action Space
+
+The agent submits a single structured JSON object as its action:
 
 ```python
-from fin_data_normalizer import FinDataNormalizerAction, FinDataNormalizerEnv
-
-try:
-    # Create environment from Docker image
-    fin_data_normalizerenv = FinDataNormalizerEnv.from_docker_image("fin_data_normalizer-env:latest")
-
-    # Reset
-    result = fin_data_normalizerenv.reset()
-    print(f"Reset: {result.observation.echoed_message}")
-
-    # Send multiple messages
-    messages = ["Hello, World!", "Testing echo", "Final message"]
-
-    for msg in messages:
-        result = fin_data_normalizerenv.step(FinDataNormalizerAction(message=msg))
-        print(f"Sent: '{msg}'")
-        print(f"  → Echoed: '{result.observation.echoed_message}'")
-        print(f"  → Length: {result.observation.message_length}")
-        print(f"  → Reward: {result.reward}")
-
-finally:
-    # Always clean up
-    fin_data_normalizerenv.close()
+class FinDataNormalizerAction(Action):
+    result: Dict[str, Any]  # Task-specific answer dictionary
 ```
 
-That's it! The `FinDataNormalizerEnv.from_docker_image()` method handles:
-- Starting the Docker container
-- Waiting for the server to be ready
-- Connecting to the environment
-- Container cleanup when you call `close()`
+The structure of `result` depends on the active task (see Task Descriptions below).
 
-## Building the Docker Image
+---
 
-Before using the environment, you need to build the Docker image:
+## Observation Space
 
-```bash
-# From project root
-docker build -t fin_data_normalizer-env:latest -f server/Dockerfile .
+```python
+class FinDataNormalizerObservation(Observation):
+    task_name: str           # Active task identifier
+    task_description: str    # Full instructions for the agent
+    task_data: Dict          # Raw input data to process
+    difficulty: str          # "easy" | "medium" | "hard"
+    score: float             # Score awarded (0.0–1.0), 0.0 on reset
+    feedback: str            # Human-readable explanation of score
+    fields_correct: List[str]  # Fields the agent got right
+    fields_wrong: List[str]    # Fields the agent got wrong
+    done: bool               # True after step() is called
+    reward: float            # Same as score
 ```
 
-## Deploying to Hugging Face Spaces
+---
 
-You can easily deploy your OpenEnv environment to Hugging Face Spaces using the `openenv push` command:
+## Task Descriptions
 
-```bash
-# From the environment directory (where openenv.yaml is located)
-openenv push
+### Task 1: Unit Normalization (Easy)
 
-# Or specify options
-openenv push --namespace my-org --private
+**Objective:** Normalize a list of company revenue figures to Crores INR from mixed units and currencies.
+
+**Input:** List of companies with revenues in formats like `"1,23,456 Cr"`, `"12.34 Billion USD"`, `"1234560 Lakhs"`, `"~890 Cr"`, `"Data not available"`.
+
+**Expected Output:**
+```json
+{
+  "normalized": [
+    {"company": "Reliance", "revenue_cr": 123456.0},
+    {"company": "Infosys", "revenue_cr": 103039.0},
+    {"company": "TCS", "revenue_cr": 123456.0},
+    {"company": "Wipro", "revenue_cr": 890.0},
+    {"company": "HCL", "revenue_cr": null}
+  ]
+}
 ```
 
-The `openenv push` command will:
-1. Validate that the directory is an OpenEnv environment (checks for `openenv.yaml`)
-2. Prepare a custom build for Hugging Face Docker space (enables web interface)
-3. Upload to Hugging Face (ensuring you're logged in)
+**Grader:** Each company is scored independently (partial credit). Approximate values (`~`) must be parsed. Unavailable data must return `null` not `0`.
+
+| Company | Weight | Challenge |
+|---------|--------|-----------|
+| Reliance | 0.15 | Standard Cr format |
+| Infosys | 0.25 | Billion USD → Cr conversion |
+| TCS | 0.20 | Lakhs → Cr conversion |
+| Wipro | 0.20 | Strip `~` prefix |
+| HCL | 0.20 | Return `null` for unavailable |
+
+---
+
+### Task 2: RBI Metric Extraction (Medium)
+
+**Objective:** Extract six structured metrics from an RBI Monetary Policy Committee (MPC) statement written in natural language (numbers as words).
+
+**Input:** Paragraph of MPC statement text including phrases like *"six point five percent"*, *"thirty basis points"*, *"five to one"*.
+
+**Expected Output:**
+```json
+{
+  "repo_rate_pct": 6.5,
+  "sdf_rate_pct": 6.25,
+  "cpi_inflation_pct": 5.1,
+  "core_inflation_pct": 4.2,
+  "core_inflation_change_bps": -30,
+  "mpc_vote": "5-1"
+}
+```
+
+**Grader:** Each of the 6 fields is worth 1/6 of the total score. Numeric tolerance: ±0.01. `core_inflation_change_bps` must be **negative** (easing = reduction).
+
+---
+
+### Task 3: Conflict Resolution (Hard)
+
+**Objective:** Given the same financial metric reported by 4 sources with different reliability tiers and publication dates, apply explicit priority rules to resolve the conflict.
+
+**Rules:**
+- `RULE_1`: Audited sources take highest priority
+- `RULE_2`: Among same reliability tier, most recent `date_published` wins
+- `RULE_3`: Normalize all values to Crores INR before comparison
+- `RULE_4`: Flag `conflicts_detected=true` if any source differs by >0.5 Cr
+
+**Expected Output:**
+```json
+{
+  "resolved_value_cr": 234.0,
+  "chosen_source": "Annual Report",
+  "rule_applied": "RULE_1",
+  "conflicts_detected": true,
+  "conflict_detail": "sources differ by up to 0.7 Cr after normalization"
+}
+```
+
+**Grader:** Field-level partial credit (resolved_value: 0.35, chosen_source: 0.25, rule_applied: 0.25, conflicts_detected: 0.15).
+
+---
+
+## Reward Function
+
+All rewards are in `[0.0, 1.0]`. The environment provides **dense partial credit** — agents receive signal proportional to how many fields they get correct, not just binary win/lose. This makes the reward function useful for RL training signal across the full trajectory.
+
+| Task | Scoring Method |
+|------|---------------|
+| Unit Normalization | Per-company weighted score |
+| Metric Extraction | Per-field uniform score (1/6 each) |
+| Conflict Resolution | Per-field weighted score |
+
+---
+
+## Setup & Usage
 
 ### Prerequisites
+- Docker
+- Python 3.10+
+- `openenv-core>=0.2.3`
 
-- Authenticate with Hugging Face: The command will prompt for login if not already authenticated
-
-### Options
-
-- `--directory`, `-d`: Directory containing the OpenEnv environment (defaults to current directory)
-- `--repo-id`, `-r`: Repository ID in format 'username/repo-name' (defaults to 'username/env-name' from openenv.yaml)
-- `--base-image`, `-b`: Base Docker image to use (overrides Dockerfile FROM)
-- `--private`: Deploy the space as private (default: public)
-
-### Examples
+### Local Development
 
 ```bash
-# Push to your personal namespace (defaults to username/env-name from openenv.yaml)
-openenv push
+# Clone the repo
+git clone https://github.com/DhruvBhatt20/fin-data-normalizer.git
+cd fin-data-normalizer
 
-# Push to a specific repository
-openenv push --repo-id my-org/my-env
+# Build Docker image
+docker build -t fin_data_normalizer_env:latest -f server/Dockerfile .
 
-# Push with a custom base image
-openenv push --base-image ghcr.io/meta-pytorch/openenv-base:latest
+# Run the server
+docker run -d -p 8000:8000 fin_data_normalizer_env:latest
 
-# Push as a private space
-openenv push --private
-
-# Combine options
-openenv push --repo-id my-org/my-env --base-image custom-base:latest --private
+# Test health
+curl http://localhost:8000/health
 ```
 
-After deployment, your space will be available at:
-`https://huggingface.co/spaces/<repo-id>`
-
-The deployed space includes:
-- **Web Interface** at `/web` - Interactive UI for exploring the environment
-- **API Documentation** at `/docs` - Full OpenAPI/Swagger interface
-- **Health Check** at `/health` - Container health monitoring
-- **WebSocket** at `/ws` - Persistent session endpoint for low-latency interactions
-
-## Environment Details
-
-### Action
-**FinDataNormalizerAction**: Contains a single field
-- `message` (str) - The message to echo back
-
-### Observation
-**FinDataNormalizerObservation**: Contains the echo response and metadata
-- `echoed_message` (str) - The message echoed back
-- `message_length` (int) - Length of the message
-- `reward` (float) - Reward based on message length (length × 0.1)
-- `done` (bool) - Always False for echo environment
-- `metadata` (dict) - Additional info like step count
-
-### Reward
-The reward is calculated as: `message_length × 0.1`
-- "Hi" → reward: 0.2
-- "Hello, World!" → reward: 1.3
-- Empty message → reward: 0.0
-
-## Advanced Usage
-
-### Connecting to an Existing Server
-
-If you already have a Fin Data Normalizer environment server running, you can connect directly:
+### Python Client
 
 ```python
-from fin_data_normalizer import FinDataNormalizerEnv
+import asyncio
+from client import FinDataNormalizerEnv
+from models import FinDataNormalizerAction
 
-# Connect to existing server
-fin_data_normalizerenv = FinDataNormalizerEnv(base_url="<ENV_HTTP_URL_HERE>")
+async def main():
+    async with FinDataNormalizerEnv(base_url="http://localhost:8000") as env:
+        # Reset to a specific task
+        result = await env.reset(task_name="unit_normalization")
+        print(result.observation.task_description)
 
-# Use as normal
-result = fin_data_normalizerenv.reset()
-result = fin_data_normalizerenv.step(FinDataNormalizerAction(message="Hello!"))
+        # Submit answer
+        action = FinDataNormalizerAction(result={
+            "normalized": [
+                {"company": "Reliance", "revenue_cr": 123456.0},
+                # ...
+            ]
+        })
+        result = await env.step(action)
+        print(f"Score: {result.observation.score}")
+        print(f"Feedback: {result.observation.feedback}")
+
+asyncio.run(main())
 ```
 
-Note: When connecting to an existing server, `fin_data_normalizerenv.close()` will NOT stop the server.
-
-### Using the Context Manager
-
-The client supports context manager usage for automatic connection management:
-
-```python
-from fin_data_normalizer import FinDataNormalizerAction, FinDataNormalizerEnv
-
-# Connect with context manager (auto-connects and closes)
-with FinDataNormalizerEnv(base_url="http://localhost:8000") as env:
-    result = env.reset()
-    print(f"Reset: {result.observation.echoed_message}")
-    # Multiple steps with low latency
-    for msg in ["Hello", "World", "!"]:
-        result = env.step(FinDataNormalizerAction(message=msg))
-        print(f"Echoed: {result.observation.echoed_message}")
-```
-
-The client uses WebSocket connections for:
-- **Lower latency**: No HTTP connection overhead per request
-- **Persistent session**: Server maintains your environment state
-- **Efficient for episodes**: Better for many sequential steps
-
-### Concurrent WebSocket Sessions
-
-The server supports multiple concurrent WebSocket connections. To enable this,
-modify `server/app.py` to use factory mode:
-
-```python
-# In server/app.py - use factory mode for concurrent sessions
-app = create_app(
-    FinDataNormalizerEnvironment,  # Pass class, not instance
-    FinDataNormalizerAction,
-    FinDataNormalizerObservation,
-    max_concurrent_envs=4,  # Allow 4 concurrent sessions
-)
-```
-
-Then multiple clients can connect simultaneously:
-
-```python
-from fin_data_normalizer import FinDataNormalizerAction, FinDataNormalizerEnv
-from concurrent.futures import ThreadPoolExecutor
-
-def run_episode(client_id: int):
-    with FinDataNormalizerEnv(base_url="http://localhost:8000") as env:
-        result = env.reset()
-        for i in range(10):
-            result = env.step(FinDataNormalizerAction(message=f"Client {client_id}, step {i}"))
-        return client_id, result.observation.message_length
-
-# Run 4 episodes concurrently
-with ThreadPoolExecutor(max_workers=4) as executor:
-    results = list(executor.map(run_episode, range(4)))
-```
-
-## Development & Testing
-
-### Direct Environment Testing
-
-Test the environment logic directly without starting the HTTP server:
+### Running the Baseline Inference Script
 
 ```bash
-# From the server directory
-python3 server/fin_data_normalizer_environment.py
+export API_BASE_URL="https://router.huggingface.co/v1"
+export MODEL_NAME="Qwen/Qwen2.5-72B-Instruct"
+export HF_TOKEN="your-hf-token"
+export LOCAL_IMAGE_NAME="fin_data_normalizer_env:latest"
+
+python3 inference.py
 ```
 
-This verifies that:
-- Environment resets correctly
-- Step executes actions properly
-- State tracking works
-- Rewards are calculated correctly
+---
 
-### Running Locally
+## Baseline Scores
 
-Run the server locally for development:
+Scores achieved by `Qwen/Qwen2.5-72B-Instruct` on the hosted environment:
 
-```bash
-uvicorn server.app:app --reload
-```
+| Task | Difficulty | Baseline Score |
+|------|-----------|----------------|
+| unit_normalization | Easy | ~0.75 |
+| metric_extraction | Medium | ~0.85 |
+| conflict_resolution | Hard | ~0.60 |
+| **Average** | | **~0.73** |
+
+*Note: Scores are approximate and may vary across runs due to model temperature.*
+
+---
+
+## Deployment
+
+The environment is deployed as a HuggingFace Space:
+
+**Space URL:** https://huggingface.co/spaces/DhruvBhatt20/fin-data-normalizer-env  
+**API Base:** https://dhruvbhatt20-fin-data-normalizer-env.hf.space  
+**Health:** https://dhruvbhatt20-fin-data-normalizer-env.hf.space/health  
+**Docs:** https://dhruvbhatt20-fin-data-normalizer-env.hf.space/docs  
+
+---
 
 ## Project Structure
 
 ```
 fin_data_normalizer/
-├── .dockerignore         # Docker build exclusions
-├── __init__.py            # Module exports
-├── README.md              # This file
-├── openenv.yaml           # OpenEnv manifest
-├── pyproject.toml         # Project metadata and dependencies
-├── uv.lock                # Locked dependencies (generated)
-├── client.py              # FinDataNormalizerEnv client
-├── models.py              # Action and Observation models
+├── models.py                          # Action/Observation/State types (Pydantic)
+├── client.py                          # WebSocket client for training code
+├── inference.py                       # Baseline inference script (OpenAI client)
+├── openenv.yaml                       # OpenEnv manifest
+├── pyproject.toml                     # Project dependencies
+├── uv.lock                            # Locked dependencies
+├── README.md                          # This file
 └── server/
-    ├── __init__.py        # Server module exports
-    ├── fin_data_normalizer_environment.py  # Core environment logic
-    ├── app.py             # FastAPI application (HTTP + WebSocket endpoints)
-    └── Dockerfile         # Container image definition
+    ├── fin_data_normalizer_environment.py  # Core environment + graders
+    ├── app.py                         # FastAPI server
+    ├── Dockerfile                     # Container definition
+    └── requirements.txt               # Server dependencies
 ```
+
+---
+
+## Author
+
+**Dhruv Bhatt**  
+B.E. EEE + M.Sc. Economics, BITS Pilani  
+GitHub: [@DhruvBhatt20](https://github.com/DhruvBhatt20)
