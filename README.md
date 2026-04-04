@@ -1,3 +1,12 @@
+---
+title: Financial Data Normalizer
+emoji: 📊
+colorFrom: blue
+colorTo: green
+sdk: docker
+pinned: false
+---
+
 # Financial Data Normalizer — OpenEnv Environment
 
 A real-world reinforcement learning environment where an AI agent acts as a **financial data analyst**, processing messy, inconsistent financial data across three tasks of increasing difficulty.
