@@ -16,33 +16,6 @@ from openenv.core.env_server.types import Action, Observation
 from pydantic import Field
 
 
-class FinDataNormalizerAction(Action):
-    """
-    Action submitted by the agent to the Financial Data Normalizer environment.
-
-    The agent returns a JSON-serializable dictionary containing its answer
-    for the current task. The structure of 'result' depends on the active task:
-
-    Task 1 (unit_normalization):
-        {"normalized": [{"company": str, "revenue_cr": float | null}, ...]}
-
-    Task 2 (metric_extraction):
-        {"repo_rate_pct": float, "sdf_rate_pct": float,
-         "cpi_inflation_pct": float, "core_inflation_pct": float,
-         "core_inflation_change_bps": int, "mpc_vote": str}
-
-    Task 3 (conflict_resolution):
-        {"resolved_value_cr": float, "chosen_source": str,
-         "rule_applied": str, "conflicts_detected": bool,
-         "conflict_detail": str}
-    """
-
-    result: Dict[str, Any] = Field(
-        ...,
-        description="Agent's answer for the current task as a structured dictionary.",
-    )
-
-
 class FinDataNormalizerObservation(Observation):
     """
     Observation returned to the agent after reset() or step().
@@ -82,12 +55,34 @@ class FinDataNormalizerObservation(Observation):
         default=None,
         description="List of fields the agent got wrong.",
     )
+
+
 class FinDataNormalizerAction(Action):
+    """
+    Action submitted by the agent to the Financial Data Normalizer environment.
+
+    The agent returns a JSON-serializable dictionary containing its answer
+    for the current task. The structure of 'result' depends on the active task:
+
+    Task 1 (unit_normalization):
+        {"normalized": [{"company": str, "revenue_cr": float | null}, ...]}
+
+    Task 2 (metric_extraction):
+        {"repo_rate_pct": float, "sdf_rate_pct": float,
+         "cpi_inflation_pct": float, "core_inflation_pct": float,
+         "core_inflation_change_bps": int, "mpc_vote": str}
+
+    Task 3 (conflict_resolution):
+        {"resolved_value_cr": float, "chosen_source": str,
+         "rule_applied": str, "conflicts_detected": bool,
+         "conflict_detail": str}
+    """
+
     task_name: Optional[str] = Field(
         default=None,
-        description="Task to grade. Required if reset() was not called in this session."
+        description="Task to grade. Required if reset() was not called in this session.",
     )
     result: Dict[str, Any] = Field(
         ...,
-        description="Agent's answer for the current task."
+        description="Agent's answer for the current task as a structured dictionary.",
     )
