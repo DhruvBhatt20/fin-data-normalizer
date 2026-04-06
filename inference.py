@@ -26,6 +26,7 @@ except ImportError:
     from fin_data_normalizer.models import FinDataNormalizerAction
 
 IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME") or os.getenv("IMAGE_NAME")
+ENV_BASE_URL = os.getenv("ENV_BASE_URL") or os.getenv("OPENENV_BASE_URL", "http://localhost:8000")
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
@@ -150,13 +151,34 @@ async def run_episode(env: "FinDataNormalizerEnv", client: OpenAI, task_name: st
     return score
 
 
+async def get_env() -> "FinDataNormalizerEnv":
+    """
+    Connect to the environment.
+
+    If LOCAL_IMAGE_NAME / IMAGE_NAME is set AND the docker binary is available,
+    spin up a fresh container via from_docker_image().
+    Otherwise connect directly to the already-running container that the
+    evaluator started (default: http://localhost:8000, overridable via
+    ENV_BASE_URL or OPENENV_BASE_URL).
+    """
+    import shutil
+
+    if IMAGE_NAME and shutil.which("docker"):
+        print(f"[DEBUG] Starting container from image: {IMAGE_NAME}", flush=True)
+        return await FinDataNormalizerEnv.from_docker_image(IMAGE_NAME)
+
+    print(f"[DEBUG] Connecting to existing container at: {ENV_BASE_URL}", flush=True)
+    env = FinDataNormalizerEnv(base_url=ENV_BASE_URL)
+    await env.connect()
+    return env
+
+
 async def main() -> None:
-    print(f"[DEBUG] Starting container from image: {IMAGE_NAME}", flush=True)
     print(f"[DEBUG] Using model: {MODEL_NAME}", flush=True)
 
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
-    env = await FinDataNormalizerEnv.from_docker_image(IMAGE_NAME)
+    env = await get_env()
 
     all_scores: Dict[str, float] = {}
     try:
