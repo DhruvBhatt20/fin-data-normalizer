@@ -12,7 +12,7 @@ Simulates a real-world financial analyst's workspace where an AI agent must:
   Task 2 (medium) - Extract key metrics from RBI Monetary Policy Statement text
   Task 3 (hard)   - Resolve conflicts across multiple financial data sources
 
-All graders are fully deterministic and produce scores in [0.0, 1.0].
+All graders are fully deterministic and produce scores in (0.0, 1.0) exclusive.
 """
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -242,7 +242,7 @@ def grade_unit_normalization(result: Dict[str, Any]) -> Tuple[float, str, List[s
             else:
                 wrong.append(company)
 
-    score = round(min(max(score, 0.0), 1.0), 4)
+    score = round(min(max(score, 0.01), 0.99), 4)
     feedback = (
         f"Score: {score:.2f}. Correct: {correct}. Wrong/missing: {wrong}. "
         "Tolerance: ±1% of expected value. 'Data not available' must map to null."
@@ -304,7 +304,7 @@ def grade_metric_extraction(result: Dict[str, Any]) -> Tuple[float, str, List[st
             except (TypeError, ValueError):
                 wrong.append(field)
 
-    score = round(min(max(score, 0.0), 1.0), 4)
+    score = round(min(max(score, 0.01), 0.99), 4)
     feedback = (
         f"Score: {score:.2f}. Correct fields: {correct}. "
         f"Wrong/missing fields: {wrong}. "
@@ -376,7 +376,7 @@ def grade_conflict_resolution(result: Dict[str, Any]) -> Tuple[float, str, List[
     else:
         wrong.append("conflicts_detected")
 
-    score = round(min(max(score, 0.0), 1.0), 4)
+    score = round(min(max(score, 0.01), 0.99), 4)
     feedback = (
         f"Score: {score:.2f}. Correct: {correct}. Wrong: {wrong}. "
         "RULE_1 (audited priority) must be applied. "
