@@ -151,26 +151,43 @@ async def run_episode(env: "FinDataNormalizerEnv", client: OpenAI, task_name: st
     return score
 
 
+async def _connect_with_retry(base_url: str, retries: int = 5, delay: float = 3.0) -> "FinDataNormalizerEnv":
+    """Connect to an already-running environment server, retrying if not yet ready."""
+    env = FinDataNormalizerEnv(base_url=base_url)
+    last_exc: Optional[Exception] = None
+    for attempt in range(1, retries + 1):
+        try:
+            await env.connect()
+            print(f"[DEBUG] Connected to {base_url} on attempt {attempt}", flush=True)
+            return env
+        except Exception as exc:
+            last_exc = exc
+            print(f"[DEBUG] Connection attempt {attempt}/{retries} failed: {exc}", flush=True)
+            if attempt < retries:
+                await asyncio.sleep(delay)
+    raise ConnectionError(f"Failed to connect to {base_url} after {retries} attempts: {last_exc}") from last_exc
+
+
 async def get_env() -> "FinDataNormalizerEnv":
     """
-    Connect to the environment.
+    Connect to the environment using the best available method:
 
-    If LOCAL_IMAGE_NAME / IMAGE_NAME is set AND the docker binary is available,
-    spin up a fresh container via from_docker_image().
-    Otherwise connect directly to the already-running container that the
-    evaluator started (default: http://localhost:8000, overridable via
-    ENV_BASE_URL or OPENENV_BASE_URL).
+    1. If IMAGE_NAME is set and the docker binary is available, spin up a
+       fresh container via from_docker_image().  If that fails, fall through.
+    2. Connect directly to the already-running server at ENV_BASE_URL /
+       OPENENV_BASE_URL (default http://localhost:8000), with retries.
     """
     import shutil
 
     if IMAGE_NAME and shutil.which("docker"):
         print(f"[DEBUG] Starting container from image: {IMAGE_NAME}", flush=True)
-        return await FinDataNormalizerEnv.from_docker_image(IMAGE_NAME)
+        try:
+            return await FinDataNormalizerEnv.from_docker_image(IMAGE_NAME)
+        except Exception as exc:
+            print(f"[DEBUG] from_docker_image failed ({exc}), falling back to URL", flush=True)
 
     print(f"[DEBUG] Connecting to existing container at: {ENV_BASE_URL}", flush=True)
-    env = FinDataNormalizerEnv(base_url=ENV_BASE_URL)
-    await env.connect()
-    return env
+    return await _connect_with_retry(ENV_BASE_URL)
 
 
 async def main() -> None:
