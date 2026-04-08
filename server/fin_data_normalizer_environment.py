@@ -472,12 +472,12 @@ class FinDataNormalizerEnvironment(Environment):
                 task_description="Episode already complete. Call reset() to start a new episode.",
                 task_data={},
                 difficulty="easy",
-                score=0.0,
+                score=0.01,
                 feedback="Episode already complete.",
                 fields_correct=[],
                 fields_wrong=[],
                 done=True,
-                reward=0.0,
+                reward=0.01,
             )
 
         # Support stateless mode: use task_name from action if no active episode
@@ -490,12 +490,12 @@ class FinDataNormalizerEnvironment(Environment):
                     task_description="No active episode. Call reset() or provide task_name in action.",
                     task_data={},
                     difficulty="easy",
-                    score=0.0,
+                    score=0.01,
                     feedback="No active task.",
                     fields_correct=[],
                     fields_wrong=[],
                     done=True,
-                    reward=0.0,
+                    reward=0.01,
                 )
 
         grader = GRADERS[self._current_task]
