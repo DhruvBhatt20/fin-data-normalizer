@@ -151,7 +151,7 @@ async def run_episode(env: "FinDataNormalizerEnv", client: OpenAI, task_name: st
     return score
 
 
-async def _connect_with_retry(base_url: str, retries: int = 5, delay: float = 3.0) -> "FinDataNormalizerEnv":
+async def _connect_with_retry(base_url: str, retries: int = 10, delay: float = 5.0) -> "FinDataNormalizerEnv":
     """Connect to an already-running environment server, retrying if not yet ready."""
     env = FinDataNormalizerEnv(base_url=base_url)
     last_exc: Optional[Exception] = None
@@ -170,24 +170,31 @@ async def _connect_with_retry(base_url: str, retries: int = 5, delay: float = 3.
 
 async def get_env() -> "FinDataNormalizerEnv":
     """
-    Connect to the environment using the best available method:
+    Connect to the environment.
 
-    1. If IMAGE_NAME is set and the docker binary is available, spin up a
-       fresh container via from_docker_image().  If that fails, fall through.
-    2. Connect directly to the already-running server at ENV_BASE_URL /
-       OPENENV_BASE_URL (default http://localhost:8000), with retries.
+    Priority order:
+    1. If OPENENV_BASE_URL or ENV_BASE_URL is explicitly set in the environment,
+       connect directly to that URL (the evaluator has already started the server).
+    2. If LOCAL_IMAGE_NAME / IMAGE_NAME is set and docker is available,
+       spin up a fresh container via from_docker_image().
+    3. Fall back to localhost:8000 with retries.
     """
     import shutil
+
+    explicit_url = os.environ.get("OPENENV_BASE_URL") or os.environ.get("ENV_BASE_URL")
+    if explicit_url:
+        print(f"[DEBUG] Using evaluator-provided URL: {explicit_url}", flush=True)
+        return await _connect_with_retry(explicit_url)
 
     if IMAGE_NAME and shutil.which("docker"):
         print(f"[DEBUG] Starting container from image: {IMAGE_NAME}", flush=True)
         try:
             return await FinDataNormalizerEnv.from_docker_image(IMAGE_NAME)
         except Exception as exc:
-            print(f"[DEBUG] from_docker_image failed ({exc}), falling back to URL", flush=True)
+            print(f"[DEBUG] from_docker_image failed ({exc}), falling back to localhost", flush=True)
 
-    print(f"[DEBUG] Connecting to existing container at: {ENV_BASE_URL}", flush=True)
-    return await _connect_with_retry(ENV_BASE_URL)
+    print(f"[DEBUG] Connecting to localhost:8000", flush=True)
+    return await _connect_with_retry("http://localhost:8000")
 
 
 async def main() -> None:
@@ -195,7 +202,14 @@ async def main() -> None:
 
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
-    env = await get_env()
+    try:
+        env = await get_env()
+    except Exception as exc:
+        print(f"[DEBUG] Fatal: could not connect to environment: {exc}", flush=True)
+        for task_name in TASKS:
+            log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
+            log_end(success=False, steps=0, score=0.0, rewards=[])
+        return
 
     all_scores: Dict[str, float] = {}
     try:
