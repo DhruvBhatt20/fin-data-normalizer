@@ -13,7 +13,9 @@ MANDATORY environment variables:
 import asyncio
 import json
 import os
+import sys
 import textwrap
+import traceback
 from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
@@ -233,4 +235,10 @@ async def main() -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except BaseException as _top_exc:
+        print(f"[DEBUG] TOP-LEVEL EXCEPTION: {type(_top_exc).__name__}: {_top_exc}", flush=True)
+        traceback.print_exc(file=sys.stdout)
+        sys.stdout.flush()
+        sys.exit(0)
