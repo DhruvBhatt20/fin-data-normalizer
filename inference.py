@@ -133,6 +133,7 @@ async def run_episode(env: "FinDataNormalizerEnv", client: OpenAI, task_name: st
 
         step_result = await env.step(FinDataNormalizerAction(result=agent_result))
         reward = float(step_result.reward or 0.0)
+        reward = max(0.01, min(0.99, reward))  # must be strictly in (0, 1)
         done = step_result.done
 
         rewards.append(reward)
@@ -210,7 +211,7 @@ async def main() -> None:
         print(f"[DEBUG] Fatal: could not connect to environment: {exc}", flush=True)
         for task_name in TASKS:
             log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
-            log_end(success=False, steps=0, score=0.0, rewards=[])
+            log_end(success=False, steps=0, score=0.0, rewards=[0.01])
         return
 
     all_scores: Dict[str, float] = {}
