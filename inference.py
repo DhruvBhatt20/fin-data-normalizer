@@ -70,7 +70,7 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} rewards={rewards_str}", flush=True)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 
 def build_user_prompt(task_name: str, task_description: str, task_data: Dict) -> str:
@@ -116,7 +116,7 @@ def get_model_result(client: OpenAI, task_name: str, task_description: str, task
 async def run_episode(env: "FinDataNormalizerEnv", client: OpenAI, task_name: str) -> float:
     rewards: List[float] = []
     steps_taken = 0
-    score = 0.0
+    score = 0.01
     success = False
     error_msg = None
 
@@ -141,7 +141,7 @@ async def run_episode(env: "FinDataNormalizerEnv", client: OpenAI, task_name: st
 
         log_step(step=1, action=action_str[:120], reward=reward, done=done, error=None)
 
-        score = min(max(reward, 0.0), 1.0)
+        score = min(max(reward, 0.01), 0.99)
         success = score >= SUCCESS_SCORE_THRESHOLD
 
     except Exception as e:
