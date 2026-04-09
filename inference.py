@@ -149,6 +149,8 @@ async def run_episode(env: "FinDataNormalizerEnv", client: OpenAI, task_name: st
         print(f"[DEBUG] Episode error: {e}", flush=True)
 
     finally:
+        if not rewards:
+            rewards = [0.01]  # ensure never empty — evaluator requires a valid score
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
     return score

@@ -214,7 +214,7 @@ def grade_unit_normalization(result: Dict[str, Any]) -> Tuple[float, str, List[s
 
     normalized = result.get("normalized", [])
     if not isinstance(normalized, list):
-        return 0.0, "Result must contain a 'normalized' list.", [], list(weights.keys())
+        return 0.01, "Result must contain a 'normalized' list.", [], list(weights.keys())
 
     agent_map = {}
     for row in normalized:
@@ -446,12 +446,12 @@ class FinDataNormalizerEnvironment(Environment):
             task_description=TASK_DESCRIPTIONS[self._current_task],
             task_data=TASK_DATA[self._current_task],
             difficulty=TASK_DIFFICULTIES[self._current_task],
-            score=0.0,
+            score=0.01,
             feedback="Episode started. Submit your result via step().",
             fields_correct=[],
             fields_wrong=[],
             done=False,
-            reward=0.0,
+            reward=None,
         )
 
     def step(self, action: FinDataNormalizerAction) -> FinDataNormalizerObservation:  # type: ignore[override]
@@ -500,6 +500,7 @@ class FinDataNormalizerEnvironment(Environment):
 
         grader = GRADERS[self._current_task]
         score, feedback, correct, wrong = grader(action.result)
+        score = round(min(max(score, 0.01), 0.99), 4)  # safety clamp — graders must never return 0.0 or 1.0
 
         self._done = True
 
