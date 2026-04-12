@@ -2,10 +2,14 @@ spec_version: 1
 name: fin_data_normalizer
 display_name: Financial Data Normalizer
 description: >
-  A real-world RL environment where an AI agent must clean, extract, and
-  reconcile messy financial data. Three tasks of increasing difficulty:
-  unit normalization (easy), RBI metric extraction (medium), and
-  multi-source conflict resolution (hard).
+  A real-world RL environment where an AI agent acts as a financial data analyst,
+  processing messy and inconsistent financial data across three tasks of increasing
+  difficulty. Each task draws randomly from an instance pool at reset(), requiring
+  agents to generalize across varied inputs rather than memorize a single example.
+  Tasks: unit normalization of mixed-unit revenue figures (easy), structured metric
+  extraction from RBI Monetary Policy Committee statements (medium), and multi-source
+  conflict resolution using explicit priority rules (hard). Dense partial credit grading
+  across all tasks provides rich RL training signal.
 type: space
 runtime: fastapi
 app: server.app:app
@@ -16,13 +20,26 @@ tags:
   - nlp
   - real-world
   - openenv
+  - indian-markets
+  - partial-credit
+  - generalization
 tasks:
   - name: unit_normalization
     difficulty: easy
-    description: Normalize financial figures to Crores INR from mixed units and currencies.
+    description: >
+      Normalize company revenue figures to Crores INR from mixed units (Cr, Lakhs,
+      Millions, Billions) and currencies (INR, USD). Handles ~ approximations,
+      ₹ prefixes, comma-formatted numbers, and unavailable data entries.
   - name: metric_extraction
     difficulty: medium
-    description: Extract key metrics from RBI Monetary Policy Committee statement text.
+    description: >
+      Extract six structured fields from RBI Monetary Policy Committee statement text.
+      Numbers appear as words or digits. Requires parsing implicit values (e.g. SDF
+      rate derived from repo rate), vote formats, and easing/tightening direction.
   - name: conflict_resolution
     difficulty: hard
-    description: Resolve conflicting financial data across multiple sources using priority rules.
+    description: >
+      Resolve a financial metric reported by four sources across different reliability
+      tiers and publication dates. Apply RULE_1 (audited priority), RULE_2 (recency
+      tiebreak within same tier), RULE_3 (normalize to Crores before comparison), and
+      RULE_4 (flag conflicts > 0.5 Cr). Instances include cases requiring rule chaining.
