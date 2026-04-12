@@ -34,6 +34,14 @@ This environment simulates exactly that workflow, forcing an agent to:
 **Interface:** OpenEnv standard (`reset()` / `step()` / `state()`)  
 **Deployment:** HuggingFace Spaces (Docker, FastAPI, WebSocket)
 
+### Instance Pool Design
+
+Each task has a **pool of multiple instances** randomly selected at `reset()`. This is a deliberate design choice that makes the environment a genuine RL problem rather than a static benchmark:
+
+- Agents cannot memorize a single hardcoded answer — they must **generalize** across varied inputs
+- Instances vary in unit formats, number representations, source configurations, and rule complexity
+- Harder instances (e.g., two competing audited sources, implicit SDF calculations, mixed numeric/word forms) are included to ensure the reward signal is meaningful across a range of model capabilities
+
 ---
 
 ## Action Space
@@ -57,12 +65,12 @@ class FinDataNormalizerObservation(Observation):
     task_description: str    # Full instructions for the agent
     task_data: Dict          # Raw input data to process
     difficulty: str          # "easy" | "medium" | "hard"
-    score: float             # Score awarded (0.0–1.0), 0.0 on reset
+    score: float             # Score awarded, strictly in (0, 1) exclusive after step()
     feedback: str            # Human-readable explanation of score
     fields_correct: List[str]  # Fields the agent got right
     fields_wrong: List[str]    # Fields the agent got wrong
     done: bool               # True after step() is called
-    reward: float            # Same as score
+    reward: float            # Same as score (None at reset, float after step)
 ```
 
 ---
@@ -73,40 +81,39 @@ class FinDataNormalizerObservation(Observation):
 
 **Objective:** Normalize a list of company revenue figures to Crores INR from mixed units and currencies.
 
-**Input:** List of companies with revenues in formats like `"1,23,456 Cr"`, `"12.34 Billion USD"`, `"1234560 Lakhs"`, `"~890 Cr"`, `"Data not available"`.
+**Instance A input formats:** `"1,23,456 Cr"`, `"12.34 Billion USD"`, `"1234560 Lakhs"`, `"~890 Cr"`, `"Data not available"`  
+**Instance B input formats:** `"₹8,732 Cr"`, `"2.1 Billion INR"`, `"USD 4.6 Million"`, `"~62,500 Lakhs"`, `"Figure not disclosed"`
 
-**Expected Output:**
+**Expected Output format:**
 ```json
 {
   "normalized": [
-    {"company": "Reliance", "revenue_cr": 123456.0},
-    {"company": "Infosys", "revenue_cr": 103039.0},
-    {"company": "TCS", "revenue_cr": 123456.0},
-    {"company": "Wipro", "revenue_cr": 890.0},
-    {"company": "HCL", "revenue_cr": null}
+    {"company": "CompanyName", "revenue_cr": 12345.6},
+    {"company": "OtherCompany", "revenue_cr": null}
   ]
 }
 ```
 
-**Grader:** Each company is scored independently (partial credit). Approximate values (`~`) must be parsed. Unavailable data must return `null` not `0`.
+**Grader:** Each company is scored independently (partial credit). Approximate values (`~`) must be parsed. The `₹` prefix and commas must be stripped. Unavailable data must return `null`. Tolerance: ±1% of expected value.
 
-| Company | Weight | Challenge |
-|---------|--------|-----------|
-| Reliance | 0.15 | Standard Cr format |
-| Infosys | 0.25 | Billion USD → Cr conversion |
-| TCS | 0.20 | Lakhs → Cr conversion |
-| Wipro | 0.20 | Strip `~` prefix |
-| HCL | 0.20 | Return `null` for unavailable |
+| Challenge type | Examples |
+|----------------|---------|
+| Direct Cr/INR | `"1,23,456 Cr"`, `"₹8,732 Cr"` |
+| Billion conversions | `"12.34 Billion USD"`, `"2.1 Billion INR"` |
+| Lakh conversions | `"1234560 Lakhs"`, `"~62,500 Lakhs"` |
+| USD Million | `"USD 4.6 Million"` |
+| Null entries | `"Data not available"`, `"Figure not disclosed"` |
 
 ---
 
 ### Task 2: RBI Metric Extraction (Medium)
 
-**Objective:** Extract six structured metrics from an RBI Monetary Policy Committee (MPC) statement written in natural language (numbers as words).
+**Objective:** Extract six structured metrics from an RBI Monetary Policy Committee (MPC) statement written in natural language.
 
-**Input:** Paragraph of MPC statement text including phrases like *"six point five percent"*, *"thirty basis points"*, *"five to one"*.
+**Instance A:** All numbers in word form (*"six point five percent"*, *"thirty basis points"*, *"five to one"*).  
+**Instance B:** Mixed numeric and word forms; SDF rate derivable implicitly (*"25 basis points below repo"*); vote expressed as *"4 members in favour, 2 against"*; easing described as *"softened"*.
 
-**Expected Output:**
+**Expected Output format:**
 ```json
 {
   "repo_rate_pct": 6.5,
@@ -118,7 +125,7 @@ class FinDataNormalizerObservation(Observation):
 }
 ```
 
-**Grader:** Each of the 6 fields is worth 1/6 of the total score. Numeric tolerance: ±0.01. `core_inflation_change_bps` must be **negative** (easing = reduction).
+**Grader:** Each of the 6 fields is worth 1/6 of the total score. Numeric tolerance: ±0.01. `core_inflation_change_bps` is **negative** for easing/softening and **positive** for tightening. `mpc_vote` must be in `"X-Y"` format.
 
 ---
 
@@ -129,10 +136,13 @@ class FinDataNormalizerObservation(Observation):
 **Rules:**
 - `RULE_1`: Audited sources take highest priority
 - `RULE_2`: Among same reliability tier, most recent `date_published` wins
-- `RULE_3`: Normalize all values to Crores INR before comparison
-- `RULE_4`: Flag `conflicts_detected=true` if any source differs by >0.5 Cr
+- `RULE_3`: Normalize all values to Crores INR before comparison (e.g. `₹5120 Mn` → `512 Cr`)
+- `RULE_4`: Flag `conflicts_detected=true` if any source differs by >0.5 Cr after normalization
 
-**Expected Output:**
+**Instance A:** Single audited source — `RULE_1` directly identifies the winner.  
+**Instance B (harder):** Two audited sources with different publication dates — `RULE_1` narrows to audited tier, then `RULE_2` (recency) decides. One non-Cr source requires `RULE_3` normalization before comparison.
+
+**Expected Output format:**
 ```json
 {
   "resolved_value_cr": 234.0,
@@ -143,19 +153,21 @@ class FinDataNormalizerObservation(Observation):
 }
 ```
 
-**Grader:** Field-level partial credit (resolved_value: 0.35, chosen_source: 0.25, rule_applied: 0.25, conflicts_detected: 0.15).
+**Grader:** Field-level partial credit (resolved_value_cr: 0.35, chosen_source: 0.25, rule_applied: 0.25, conflicts_detected: 0.15).
 
 ---
 
 ## Reward Function
 
-All rewards are in `[0.0, 1.0]`. The environment provides **dense partial credit** — agents receive signal proportional to how many fields they get correct, not just binary win/lose. This makes the reward function useful for RL training signal across the full trajectory.
+All rewards are strictly in `(0, 1)` exclusive. The environment provides **dense partial credit** — agents receive signal proportional to how many fields they get correct, not just binary win/lose. This makes the reward function useful for RL training signal across the full trajectory.
 
 | Task | Scoring Method |
 |------|---------------|
-| Unit Normalization | Per-company weighted score |
+| Unit Normalization | Per-company weighted score (weights vary by conversion difficulty) |
 | Metric Extraction | Per-field uniform score (1/6 each) |
-| Conflict Resolution | Per-field weighted score |
+| Conflict Resolution | Per-field weighted score (value: 0.35, source: 0.25, rule: 0.25, conflict flag: 0.15) |
+
+Because each episode randomly draws from the instance pool, the reward landscape is non-trivial: a model that correctly applies general financial reasoning will consistently outperform one that pattern-matches to a single example.
 
 ---
 
@@ -225,16 +237,15 @@ python3 inference.py
 
 ## Baseline Scores
 
-Scores achieved by `Qwen/Qwen2.5-72B-Instruct` on the hosted environment:
+Scores achieved by `Qwen/Qwen2.5-72B-Instruct` on the hosted environment. Since instances are drawn randomly, scores vary across runs — this spread is intentional and demonstrates the environment's discriminative power.
 
-| Task | Difficulty | Baseline Score |
-|------|-----------|----------------|
-| unit_normalization | Easy | 0.550 |
-| metric_extraction | Medium | 1.000 |
-| conflict_resolution | Hard | 1.000 |
-| **Average** | | **0.850** |
+| Task | Difficulty | Instance A | Instance B |
+|------|-----------|-----------|-----------|
+| unit_normalization | Easy | ~0.75 | ~0.55 |
+| metric_extraction | Medium | ~1.00 | ~0.80 |
+| conflict_resolution | Hard | ~1.00 | ~0.65 |
 
-*Note: Scores are approximate and may vary across runs due to model temperature.*
+*Instance B tasks are deliberately harder: mixed number formats, implicit calculations, and multi-rule chaining. A stronger RL-trained agent should outperform the zero-shot baseline on Instance B.*
 
 ---
 
